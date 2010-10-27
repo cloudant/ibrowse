@@ -9,7 +9,7 @@ ERL_FILES = ibrowse.erl \
 		ibrowse_test.erl
 
 
-INCLUDE_DIRS = -I./ 
+INCLUDE_DIRS = -I../include 
 
 ERLC ?= erlc
 ERLC_EMULATOR ?= erl -boot start_clean
