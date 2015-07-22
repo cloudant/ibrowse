@@ -70,6 +70,7 @@
                      ]).
 
 -define(DEFAULT_STREAM_CHUNK_SIZE, 1024*1024).
+-define(SSL_CLOSE_TIMEOUT, 5000).
 -define(dec2hex(X), erlang:integer_to_list(X, 16)).
 %%====================================================================
 %% External functions
@@ -586,7 +587,25 @@ do_close(#state{socket = Sock,
                 use_proxy = true,
                 proxy_tunnel_setup = Pts
                }) when Pts /= done ->  catch gen_tcp:close(Sock);
-do_close(#state{socket = Sock, is_ssl = true})  ->  catch ssl:close(Sock);
+do_close(#state{socket = Sock, is_ssl = true})  ->
+    % Closing an SSL socket can leave us stuck forever in a
+    % recv call deep down in SSL land. This logic is based
+    % on RabbitMQ's approach to make sure that we don't
+    % wait around forever for the SSL socket to finish
+    % terminating.
+    %
+    % This does modify the RabbitMQ logic becaus we're already
+    % on our way to exiting this process. So if we hit the
+    % timeout we just exit directly.
+    %
+    % http://hg.rabbitmq.com/rabbitmq-server/file/518a3f/src/rabbit_net.erl#l153
+    {_, MRef} = spawn_monitor(fun() -> ssl:close(Sock) end),
+    receive
+        {'DOWN', MRef, process, _, _} ->
+            ok
+    after ?SSL_CLOSE_TIMEOUT ->
+        exit(ssl_close_timeout)
+    end;
 do_close(#state{socket = Sock, is_ssl = false}) ->  catch gen_tcp:close(Sock).
 
 active_once(#state{cur_req = #request{caller_controls_socket = true}}) ->
